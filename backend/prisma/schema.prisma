@@ -1,8 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// Prisma schema for personal finance app
+// Learn more: https://pris.ly/d/prisma-schema
 
 generator client {
   provider = "prisma-client-js"
@@ -13,40 +10,93 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User{
-  id Int @id @default(autoincrement())
-  name String
-  email String @unique
-  password String
-  createdAt DateTime @default(now())
+// -------------------- ENUMS --------------------
+
+enum TransactionType {
+  CREDIT
+  DEBIT
+}
+
+// -------------------- MODELS --------------------
+
+model User {
+  id          Int         @id @default(autoincrement())
+  name        String
+  email       String      @unique
+  password    String
+  createdAt   DateTime    @default(now())
+
+  accounts    Account[]
+  categories  Category[]  // custom (non-system) categories
+
+  @@index([email])
+}
+
+// -----------------------------------------------
+
+model Account {
+  id            Int          @id @default(autoincrement())
+  userId        Int
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  currency      String       @default("INR")
+  initialAmount Decimal      @db.Decimal(19, 2) @default(0)
+  balance       Decimal      @db.Decimal(19, 2) @default(0)  // cached running balance
+  createdAt     DateTime     @default(now())
+
+  transactions  Transaction[]
+  budgets       Budget[]
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// -----------------------------------------------
+
+model Category {
+  id          Int          @id @default(autoincrement())
+  name        String
+  isSystem    Boolean      @default(false)
+  hex         String
+  userId      Int?         // null = system category
+  user        User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions Transaction[]
-  budget Budget[]
-  category Category[]
+
+  // Ensure unique (name, userId) per user for custom categories.
+  // For system categories (userId = null), ensure globally unique name.
+  @@unique([name, userId])
+  @@unique([name], map: "unique_system_category_name")
 }
-model Transaction{
-  id Int @id @default(autoincrement())
-  amount Float
-  category String
-  note String
-  type String
-  date DateTime @default(now())
-  userId Int
-  user User @relation(fields: [userId], references: [id])
+
+// -----------------------------------------------
+
+model Transaction {
+  id             Int            @id @default(autoincrement())
+  accountId      Int
+  account        Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  amount         Decimal        @db.Decimal(19, 2)
+  type           TransactionType
+  categoryId     Int?
+  category       Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  note           String?
+  date           DateTime       @default(now())
+  runningBalance Decimal?       @db.Decimal(19, 2) // balance snapshot after transaction
+
+  @@index([accountId])
+  @@index([date])
 }
-model Category{
-  id Int @id @default(autoincrement())
-  name String
-  type String
-  color String
-  userId Int
-  user User @relation(fields: [userId], references: [id])
-}
-model Budget{
-  id Int @id @default(autoincrement())
-  balance Float
-  limit Float
-  month Int
-  year Int
-  userId Int
-  user User @relation(fields: [userId], references: [id])
+
+// -----------------------------------------------
+
+model Budget {
+  id        Int      @id @default(autoincrement())
+  accountId Int
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  month     Int      // 1–12
+  year      Int
+  limit     Decimal  @db.Decimal(19, 2)
+  createdAt DateTime @default(now())
+
+  @@unique([accountId, month, year])
+  @@index([accountId, month, year])
 }
